@@ -1,0 +1,263 @@
+// Strike Finance — Staking Protocol
+// https://github.com/strike-finance/staking-smart-contracts
+//
+// Users lock STRIKE tokens in the staking contract and earn ADA rewards.
+// A credential NFT pair (tracker token + owner identifier NFT) is minted
+// on initial stake and burned on withdrawal.
+
+// --- Parties ---
+
+// The user interacting with the protocol
+party Staker;
+
+// The deployed staking script (address set per network profile)
+party StakingScript;
+
+// --- Environment ---
+// These values are fixed per network deployment and provided via profile.
+
+env {
+    // STRIKE token details (the asset being staked)
+    staking_policy_id: Bytes,
+    staking_asset_name: Bytes,
+
+    // Credential NFT policy (minted/burned on stake/unstake).
+    // This is the staking mint validator hash after applying StakingParams.
+    mint_policy_id: Bytes,
+
+    // The "tracker" token asset name (same for all stakers in this deployment)
+    tracker_asset_name: Bytes,
+
+    // Reference UTxO for the Strike script (used for both SPEND and MINT).
+    // The spend validator and mint policy share the same script hash, so
+    // the same reference UTxO serves both purposes. Using one reference
+    // block avoids duplicate entries in the reference_inputs set.
+    strike_script_ref: UtxoRef,
+}
+
+// --- Types ---
+
+// Datum stored at the staking script UTxO
+type StakingDatum {
+    owner_address_hash: Bytes,
+    staked_at: Int,
+    mint_policy_id: Bytes,
+}
+
+// Redeemer for the spend validator (unit variants — no fields)
+type StakingRedeemer {
+    AddStakeOrConsumeStakingRewards,
+    WithdrawStake,
+    DistributeStakingRewards,
+}
+
+// Redeemer for the mint validator
+type MintRedeemer {
+    Mint {
+        amount: Int,
+    },
+    Burn {
+        owner_address_hash: Bytes,
+    },
+}
+
+// --- Transactions ---
+
+// Initial stake: lock STRIKE tokens and mint credential NFTs.
+//
+// Mints two tokens:
+//   - tracker token (mint_policy_id / tracker_asset_name, qty=1) — locked in script
+//   - owner identifier NFT (mint_policy_id / owner_pkh, qty=1)  — returned to staker
+//
+// Params:
+//   owner_pkh     — staker's payment key hash (required signer + owner NFT asset name)
+//   amount        — quantity of STRIKE tokens to stake
+//   staked_at     — POSIX timestamp in milliseconds (caller-provided, see limitation #3)
+tx stake(
+    owner_pkh: Bytes,
+    amount: Int,
+    staked_at: Int,
+) {
+    locals {
+        tracker_token: AnyAsset(mint_policy_id, tracker_asset_name, 1),
+        owner_nft: AnyAsset(mint_policy_id, owner_pkh, 1),
+        strike: AnyAsset(staking_policy_id, staking_asset_name, amount),
+    }
+
+    validity {
+        until_slot: tip_slot() + 200,
+    }
+
+    // Single reference block — same UTxO serves as ref script for both
+    // SPEND (consuming the stake UTxO) and MINT (minting tracker + owner NFT).
+    // Both use the same script hash, so one reference input suffices.
+    reference strike_script {
+        ref: strike_script_ref,
+    }
+
+    // Collect STRIKE + ADA (2.5 ADA for stake UTxO + fees) from the staker
+    input* source {
+        from: Staker,
+        min_amount: fees + Ada(2500000) + strike,
+    }
+
+    // Mint tracker token (locked in script) + owner NFT (returned to staker)
+    mint {
+        amount: tracker_token + owner_nft,
+        redeemer: MintRedeemer::Mint { amount: amount, },
+    }
+
+    // New staking UTxO at the script address (includes owner NFT locked in script)
+    //
+    // NOTE: the Strike validator enforces a minimum of 2.5 ADA in the stake UTxO:
+    //   lib/constants.ak:       pub const min_lovelace_in_utxo = 2_500_000
+    //   validators/staking.ak:  lovelace_of(output_to_validator.value) >= min_lovelace_in_utxo
+    //
+    // trix's min_utxo() returns ~1.81 ADA based on coinsPerUTxOByte, which is
+    // below the contract's hard-coded 2.5 ADA floor. We must pass Ada(2500000)
+    // explicitly here, otherwise the mint validator fails silently (no trace).
+    output stake_utxo {
+        to: StakingScript,
+        amount: Ada(2500000) + strike + tracker_token + owner_nft,
+        datum: StakingDatum {
+            owner_address_hash: owner_pkh,
+            staked_at: staked_at, // (slot_to_time(tip_slot()) + 200),
+            mint_policy_id: mint_policy_id,
+        },
+    }
+
+    // Leftover ADA/change back to staker
+    output {
+        to: Staker,
+        amount: source - fees - Ada(2500000) - strike,
+    }
+
+    collateral {
+        from: Staker,
+        min_amount: Ada(5000000),
+    }
+
+    signers {
+        owner_pkh,
+    }
+}
+
+// Add more STRIKE to an existing stake position.
+//
+// The staker's owner NFT must be present in their wallet.
+// The datum is preserved; only the staked STRIKE amount increases.
+//
+// Params:
+//   owner_pkh         — staker's payment key hash (required signer)
+//   staking_utxo      — UTxO reference of the existing stake position
+//   additional_amount — extra STRIKE tokens to add
+tx add_stake(
+    owner_pkh: Bytes,
+    staking_utxo: UtxoRef,
+    additional_amount: Int,
+) {
+    locals {
+        owner_nft: AnyAsset(mint_policy_id, owner_pkh, 1),
+        extra_strike: AnyAsset(staking_policy_id, staking_asset_name, additional_amount),
+    }
+
+    // Reference to the Strike script (used for SPEND here; MINT not needed
+    // since add_stake neither mints nor burns — it only updates the position).
+    reference strike_script {
+        ref: strike_script_ref,
+    }
+
+    // Spend existing staking UTxO with the AddStake redeemer
+    input current_stake {
+        ref: staking_utxo,
+        datum_is: StakingDatum,
+        redeemer: StakingRedeemer::AddStakeOrConsumeStakingRewards {},
+    }
+
+    // Staker provides more STRIKE + fees
+    input* source {
+        from: Staker,
+        min_amount: fees + extra_strike,
+    }
+
+    // Updated staking UTxO: same datum, more STRIKE (owner NFT preserved from input)
+    output {
+        to: StakingScript,
+        amount: current_stake + extra_strike,
+        datum: StakingDatum { ...current_stake },
+    }
+
+    // Return owner NFT + remaining ADA to staker
+    output {
+        to: Staker,
+        amount: source - fees - extra_strike,
+    }
+
+    collateral {
+        from: Staker,
+        min_amount: Ada(5000000),
+    }
+
+    signers {
+        owner_pkh,
+    }
+}
+
+// Withdraw entire stake: reclaim STRIKE + accumulated ADA rewards, burn credentials.
+//
+// Burns:
+//   - tracker token (was locked in the script UTxO)
+//   - owner identifier NFT (held in staker's wallet)
+//
+// Params:
+//   owner_pkh    — staker's payment key hash (required signer)
+//   staking_utxo — UTxO reference of the stake position to close
+tx withdraw_stake(
+    owner_pkh: Bytes,
+    staking_utxo: UtxoRef,
+) {
+    locals {
+        tracker_token: AnyAsset(mint_policy_id, tracker_asset_name, 1),
+        owner_nft: AnyAsset(mint_policy_id, owner_pkh, 1),
+    }
+
+    // Single reference block — same UTxO serves as ref script for both
+    // SPEND (consuming the stake UTxO) and MINT (burning tracker + owner NFT).
+    reference strike_script {
+        ref: strike_script_ref,
+    }
+
+    // Spend the staking UTxO with the WithdrawStake redeemer
+    input current_stake {
+        ref: staking_utxo,
+        datum_is: StakingDatum,
+        redeemer: StakingRedeemer::WithdrawStake {},
+    }
+
+    // Staker provides ADA for fees
+    input* source {
+        from: Staker,
+        min_amount: fees,
+    }
+
+    // Burn both credential tokens (both come from the script input)
+    burn {
+        amount: tracker_token + owner_nft,
+        redeemer: MintRedeemer::Burn { owner_address_hash: owner_pkh, },
+    }
+
+    // All STRIKE + accumulated ADA back to staker (burned tokens excluded)
+    output {
+        to: Staker,
+        amount: current_stake + source - fees - tracker_token - owner_nft,
+    }
+
+    collateral {
+        from: Staker,
+        min_amount: Ada(5000000),
+    }
+
+    signers {
+        owner_pkh,
+    }
+}
