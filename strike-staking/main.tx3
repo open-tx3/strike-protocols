@@ -7,31 +7,32 @@
 
 // --- Parties ---
 
-// The user interacting with the protocol
+/// The user interacting with the protocol.
 party Staker;
 
-// The deployed staking script (address set per network profile)
+/// The deployed staking script (address set per network profile).
 party StakingScript;
 
 // --- Environment ---
 // These values are fixed per network deployment and provided via profile.
 
 env {
-    // STRIKE token details (the asset being staked)
+    /// Policy ID of the STRIKE token being staked.
     staking_policy_id: Bytes,
+    /// Asset name of the STRIKE token being staked.
     staking_asset_name: Bytes,
 
-    // Credential NFT policy (minted/burned on stake/unstake).
     // This is the staking mint validator hash after applying StakingParams.
+    /// Policy ID of the credential NFTs minted/burned on stake/unstake.
     mint_policy_id: Bytes,
 
-    // The "tracker" token asset name (same for all stakers in this deployment)
+    /// Asset name of the tracker token shared by all stakers in this deployment.
     tracker_asset_name: Bytes,
 
-    // Reference UTxO for the Strike script (used for both SPEND and MINT).
     // The spend validator and mint policy share the same script hash, so
     // the same reference UTxO serves both purposes. Using one reference
     // block avoids duplicate entries in the reference_inputs set.
+    /// Reference UTxO carrying the Strike script (serves both SPEND and MINT).
     strike_script_ref: UtxoRef,
 }
 
@@ -63,19 +64,16 @@ type MintRedeemer {
 
 // --- Transactions ---
 
-// Initial stake: lock STRIKE tokens and mint credential NFTs.
-//
 // Mints two tokens:
 //   - tracker token (mint_policy_id / tracker_asset_name, qty=1) — locked in script
 //   - owner identifier NFT (mint_policy_id / owner_pkh, qty=1)  — returned to staker
-//
-// Params:
-//   owner_pkh     — staker's payment key hash (required signer + owner NFT asset name)
-//   amount        — quantity of STRIKE tokens to stake
-//   staked_at     — POSIX timestamp in milliseconds (caller-provided, see limitation #3)
+/// Open a new staking position: lock STRIKE and mint the tracker + owner credential NFTs.
 tx stake(
+    /// Staker's payment key hash (required signer and owner NFT asset name).
     owner_pkh: Bytes,
+    /// Quantity of STRIKE tokens to stake.
     amount: Int,
+    /// POSIX timestamp in milliseconds recorded in the stake datum (caller-provided).
     staked_at: Int,
 ) {
     locals {
@@ -142,18 +140,15 @@ tx stake(
     }
 }
 
-// Add more STRIKE to an existing stake position.
-//
 // The staker's owner NFT must be present in their wallet.
 // The datum is preserved; only the staked STRIKE amount increases.
-//
-// Params:
-//   owner_pkh         — staker's payment key hash (required signer)
-//   staking_utxo      — UTxO reference of the existing stake position
-//   additional_amount — extra STRIKE tokens to add
+/// Top up an existing stake position with additional STRIKE while keeping the datum.
 tx add_stake(
+    /// Staker's payment key hash (required signer).
     owner_pkh: Bytes,
+    /// UTxO reference of the existing stake position to top up.
     staking_utxo: UtxoRef,
+    /// Extra STRIKE tokens to add to the position.
     additional_amount: Int,
 ) {
     locals {
@@ -203,17 +198,14 @@ tx add_stake(
     }
 }
 
-// Withdraw entire stake: reclaim STRIKE + accumulated ADA rewards, burn credentials.
-//
 // Burns:
 //   - tracker token (was locked in the script UTxO)
 //   - owner identifier NFT (held in staker's wallet)
-//
-// Params:
-//   owner_pkh    — staker's payment key hash (required signer)
-//   staking_utxo — UTxO reference of the stake position to close
+/// Close a stake position: reclaim STRIKE plus accrued ADA rewards and burn both credential NFTs.
 tx withdraw_stake(
+    /// Staker's payment key hash (required signer).
     owner_pkh: Bytes,
+    /// UTxO reference of the stake position being closed.
     staking_utxo: UtxoRef,
 ) {
     locals {
