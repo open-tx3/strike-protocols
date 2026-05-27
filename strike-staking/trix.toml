@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "STRIKE token staking with ADA rewards on Cardano"
 main = "main.tx3"
 readme = "README.md"
+logo = "logo.png"
 repository = "https://github.com/open-tx3/strike-protocols"
 
 [ledger]
