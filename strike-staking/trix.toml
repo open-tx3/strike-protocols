@@ -1,10 +1,11 @@
 [protocol]
 name = "strike-staking"
-scope = "strike-finance"
+scope = "open-tx3"
 version = "0.1.0"
 description = "STRIKE token staking with ADA rewards on Cardano"
 main = "main.tx3"
 readme = "README.md"
+repository = "https://github.com/open-tx3/strike-protocols"
 
 [ledger]
 family = "cardano"
