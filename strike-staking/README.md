@@ -34,18 +34,11 @@ Top-ups (`add_stake`) preserve the credential NFTs in the new script output. Wit
 |---|---|
 | `staked_at_time: Int` | Current Unix time × 1000. tx3's `slot_to_time()` returns seconds, so milliseconds must be computed externally. |
 
-### `add_stake`
+### `add_stake` / `withdraw_stake`
 
 | Parameter | Source |
 |---|---|
-| `staking_utxo: UtxoRef` | Existing staking position UTxO; queried on-chain. |
-| `additional_amount: Int` | User's intent. |
-
-### `withdraw_stake`
-
-| Parameter | Source |
-|---|---|
-| `staking_utxo: UtxoRef` | Staking position UTxO to withdraw from. Owner NFT and tracker token are burned from this input. |
+| `staking_utxo: UtxoRef` | The existing staking position UTxO; queried on-chain by looking up the tracker token at the spend script address. |
 
 ## References
 
