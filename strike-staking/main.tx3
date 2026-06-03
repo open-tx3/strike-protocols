@@ -94,7 +94,7 @@ tx stake(
     }
 
     // Collect STRIKE + ADA (2.5 ADA for stake UTxO + fees) from the staker
-    input* source {
+    input* payment {
         from: Staker,
         min_amount: fees + Ada(2500000) + strike,
     }
@@ -114,7 +114,7 @@ tx stake(
     // trix's min_utxo() returns ~1.81 ADA based on coinsPerUTxOByte, which is
     // below the contract's hard-coded 2.5 ADA floor. We must pass Ada(2500000)
     // explicitly here, otherwise the mint validator fails silently (no trace).
-    output stake_utxo {
+    output stake_position {
         to: StakingScript,
         amount: Ada(2500000) + strike + tracker_token + owner_nft,
         datum: StakingDatum {
@@ -125,9 +125,9 @@ tx stake(
     }
 
     // Leftover ADA/change back to staker
-    output {
+    output change {
         to: Staker,
-        amount: source - fees - Ada(2500000) - strike,
+        amount: payment - fees - Ada(2500000) - strike,
     }
 
     collateral {
@@ -170,22 +170,22 @@ tx add_stake(
     }
 
     // Staker provides more STRIKE + fees
-    input* source {
+    input* payment {
         from: Staker,
         min_amount: fees + extra_strike,
     }
 
     // Updated staking UTxO: same datum, more STRIKE (owner NFT preserved from input)
-    output {
+    output stake_position {
         to: StakingScript,
         amount: current_stake + extra_strike,
         datum: StakingDatum { ...current_stake },
     }
 
     // Return owner NFT + remaining ADA to staker
-    output {
+    output change {
         to: Staker,
-        amount: source - fees - extra_strike,
+        amount: payment - fees - extra_strike,
     }
 
     collateral {
@@ -227,7 +227,7 @@ tx withdraw_stake(
     }
 
     // Staker provides ADA for fees
-    input* source {
+    input* payment {
         from: Staker,
         min_amount: fees,
     }
@@ -239,9 +239,9 @@ tx withdraw_stake(
     }
 
     // All STRIKE + accumulated ADA back to staker (burned tokens excluded)
-    output {
+    output change {
         to: Staker,
-        amount: current_stake + source - fees - tracker_token - owner_nft,
+        amount: current_stake + payment - fees - tracker_token - owner_nft,
     }
 
     collateral {
