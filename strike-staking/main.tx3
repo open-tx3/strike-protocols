@@ -22,16 +22,12 @@ env {
     /// Asset name of the STRIKE token being staked.
     staking_asset_name: Bytes,
 
-    // This is the staking mint validator hash after applying StakingParams.
     /// Policy ID of the credential NFTs minted/burned on stake/unstake.
     mint_policy_id: Bytes,
 
     /// Asset name of the tracker token shared by all stakers in this deployment.
     tracker_asset_name: Bytes,
 
-    // The spend validator and mint policy share the same script hash, so
-    // the same reference UTxO serves both purposes. Using one reference
-    // block avoids duplicate entries in the reference_inputs set.
     /// Reference UTxO carrying the Strike script (serves both SPEND and MINT).
     strike_script_ref: UtxoRef,
 }
@@ -73,8 +69,6 @@ tx stake(
     owner_pkh: Bytes,
     /// Quantity of STRIKE tokens to stake.
     amount: Int,
-    /// POSIX timestamp in milliseconds recorded in the stake datum (caller-provided).
-    staked_at: Int,
 ) {
     locals {
         tracker_token: AnyAsset(mint_policy_id, tracker_asset_name, 1),
@@ -86,9 +80,7 @@ tx stake(
         until_slot: tip_slot() + 200,
     }
 
-    // Single reference block — same UTxO serves as ref script for both
-    // SPEND (consuming the stake UTxO) and MINT (minting tracker + owner NFT).
-    // Both use the same script hash, so one reference input suffices.
+    // Strike script reference — serves both SPEND and MINT in this tx.
     reference strike_script {
         ref: strike_script_ref,
     }
@@ -119,7 +111,7 @@ tx stake(
         amount: Ada(2500000) + strike + tracker_token + owner_nft,
         datum: StakingDatum {
             owner_address_hash: owner_pkh,
-            staked_at: staked_at, // (slot_to_time(tip_slot()) + 200),
+            staked_at: slot_to_time(tip_slot()) * 1000, // POSIX milliseconds
             mint_policy_id: mint_policy_id,
         },
     }
@@ -156,8 +148,7 @@ tx add_stake(
         extra_strike: AnyAsset(staking_policy_id, staking_asset_name, additional_amount),
     }
 
-    // Reference to the Strike script (used for SPEND here; MINT not needed
-    // since add_stake neither mints nor burns — it only updates the position).
+    // SPEND only — add_stake updates the position, no mint/burn.
     reference strike_script {
         ref: strike_script_ref,
     }
@@ -213,8 +204,7 @@ tx withdraw_stake(
         owner_nft: AnyAsset(mint_policy_id, owner_pkh, 1),
     }
 
-    // Single reference block — same UTxO serves as ref script for both
-    // SPEND (consuming the stake UTxO) and MINT (burning tracker + owner NFT).
+    // Strike script reference — serves both SPEND and MINT (burning the NFTs).
     reference strike_script {
         ref: strike_script_ref,
     }
