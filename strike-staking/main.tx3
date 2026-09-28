@@ -73,8 +73,6 @@ tx stake(
     owner_pkh: Bytes,
     /// Quantity of STRIKE tokens to stake.
     amount: Int,
-    /// POSIX timestamp in milliseconds recorded in the stake datum (caller-provided).
-    staked_at: Int,
 ) {
     locals {
         tracker_token: AnyAsset(mint_policy_id, tracker_asset_name, 1),
@@ -119,7 +117,8 @@ tx stake(
         amount: Ada(2500000) + strike + tracker_token + owner_nft,
         datum: StakingDatum {
             owner_address_hash: owner_pkh,
-            staked_at: staked_at, // (slot_to_time(tip_slot()) + 200),
+            // The TRP reports the tip timestamp in POSIX seconds; the validator expects milliseconds.
+            staked_at: slot_to_time(tip_slot()) * 1000,
             mint_policy_id: mint_policy_id,
         },
     }

@@ -28,11 +28,9 @@ Top-ups (`add_stake`) preserve the credential NFTs in the new script output. Wit
 
 ## Caller preparation
 
-### `stake` / `add_stake`
+### `stake`
 
-| Parameter | Source |
-|---|---|
-| `staked_at_time: Int` | Current Unix time × 1000. tx3's `slot_to_time()` returns seconds, so milliseconds must be computed externally. |
+No timestamp is needed from the caller. `staked_at` is derived on-chain as `slot_to_time(tip_slot()) * 1000` (POSIX milliseconds; resolved in tx3 0.23).
 
 ### `add_stake` / `withdraw_stake`
 
